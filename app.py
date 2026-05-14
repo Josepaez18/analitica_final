@@ -18,6 +18,10 @@ from sklearn.metrics import confusion_matrix, classification_report, accuracy_sc
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# En Vercel el filesystem es de solo lectura, usamos /tmp para guardar pkl
+IS_VERCEL = os.environ.get('VERCEL', False)
+PKL_DIR = '/tmp' if IS_VERCEL else BASE_DIR
+
 # Nombres de columnas del dataset
 FEATURE_COLS = [
     'Marital Status', 'Application mode', 'Application order', 'Course',
@@ -50,11 +54,12 @@ CLASS_NAMES = ['Dropout', 'Enrolled', 'Graduate']
 # ----- Funciones para modelos -----
 
 def cargar_pkl(nombre):
-    """Carga un archivo .pkl si existe."""
-    ruta = os.path.join(BASE_DIR, nombre)
-    if os.path.exists(ruta):
-        with open(ruta, 'rb') as f:
-            return pickle.load(f)
+    """Carga un archivo .pkl si existe (busca en PKL_DIR primero, luego BASE_DIR)."""
+    for d in [PKL_DIR, BASE_DIR]:
+        ruta = os.path.join(d, nombre)
+        if os.path.exists(ruta):
+            with open(ruta, 'rb') as f:
+                return pickle.load(f)
     return None
 
 
@@ -116,7 +121,7 @@ def entrenar_modelos():
             'y_test': y_test
         })
     ]:
-        with open(os.path.join(BASE_DIR, nombre), 'wb') as f:
+        with open(os.path.join(PKL_DIR, nombre), 'wb') as f:
             pickle.dump(objeto, f)
 
     print("  Modelos guardados correctamente\n")
@@ -125,13 +130,19 @@ def entrenar_modelos():
 
 # ----- Cargar o entrenar modelos al iniciar -----
 
-# Borrar pkl viejos para reentrenar con misma normalizacion
-for f in ['logreg_model.pkl', 'ann_model.pkl', 'scaler.pkl', 'label_encoder.pkl', 'test_data.pkl']:
-    ruta = os.path.join(BASE_DIR, f)
-    if os.path.exists(ruta):
-        os.remove(ruta)
+# Intentar cargar modelos existentes primero
+logreg_model = cargar_pkl('logreg_model.pkl')
+ann_model = cargar_pkl('ann_model.pkl')
+scaler = cargar_pkl('scaler.pkl')
+label_encoder = cargar_pkl('label_encoder.pkl')
+test_data = cargar_pkl('test_data.pkl')
 
-logreg_model, ann_model, scaler, label_encoder, X_test_global, y_test_global = entrenar_modelos()
+if all([logreg_model, ann_model, scaler, label_encoder, test_data]):
+    X_test_global = test_data['X_test']
+    y_test_global = test_data['y_test']
+    print("  Modelos cargados desde archivos .pkl existentes")
+else:
+    logreg_model, ann_model, scaler, label_encoder, X_test_global, y_test_global = entrenar_modelos()
 
 
 # ----- Rutas -----
